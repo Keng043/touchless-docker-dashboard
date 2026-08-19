@@ -1,0 +1,211 @@
+"""
+Module: camera_streamer
+Project: Touchless Docker Dashboard
+Author: Python Software Architect & DevOps Engineer
+Description: Thread-safe, asynchronous camera streaming module using OpenCV and Threading.
+             This implementation adheres to SOLID principles (Single Responsibility) and OOP best practices.
+"""
+
+import threading
+import time
+from typing import Tuple, Union, Optional
+import cv2
+import numpy as np
+
+
+class CameraError(Exception):
+    """Base exception class for Camera related issues."""
+    pass
+
+
+class CameraConnectionError(CameraError):
+    """Exception raised when camera connection fails or cannot be established."""
+    pass
+
+
+class CameraStreamer:
+    """
+    A class that manages a camera stream using a dedicated background thread 
+    to fetch frames asynchronously, avoiding I/O bottlenecks in the main application loop.
+
+    Attributes:
+        src (Union[int, str]): The camera source index (int) or stream URL (str).
+        width (int): The target width of the frame resolution.
+        height (int): The target height of the frame resolution.
+        cap (cv2.VideoCapture): The OpenCV VideoCapture object.
+        frame (Optional[np.ndarray]): The latest frame fetched from the camera.
+        grabbed (bool): True if the latest frame was successfully retrieved, False otherwise.
+        started (bool): Flag indicating if the background thread is currently running.
+        read_lock (threading.Lock): A lock for synchronizing thread-safe reads and writes of frames.
+        thread (Optional[threading.Thread]): The background worker thread object.
+    """
+
+    def __init__(self, src: Union[int, str] = 0, width: int = 640, height: int = 480) -> None:
+        """
+        Initializes the CameraStreamer with configuration.
+
+        Args:
+            src (Union[int, str]): Camera index (typically 0 for built-in camera) or stream path.
+            width (int): Target frame width. Defaults to 640.
+            height (int): Target frame height. Defaults to 480.
+        """
+        self.src: Union[int, str] = src
+        self.width: int = width
+        self.height: int = height
+        
+        # Thread safety and control
+        self.read_lock: threading.Lock = threading.Lock()
+        self.started: bool = False
+        self.thread: Optional[threading.Thread] = None
+        
+        # State
+        self.frame: Optional[np.ndarray] = None
+        self.grabbed: bool = False
+        
+        # OpenCV Capture Object
+        self.cap: Optional[cv2.VideoCapture] = None
+
+    def _initialize_camera(self) -> None:
+        """
+        Establishes connection to the video capture device and configures resolution parameters.
+
+        Raises:
+            CameraConnectionError: If the camera cannot be opened or initialized.
+        """
+        try:
+            self.cap = cv2.VideoCapture(self.src)
+            if not self.cap.isOpened():
+                raise CameraConnectionError(
+                    f"Failed to open video source: {self.src}. "
+                    "Please check if the device is plugged in or already in use."
+                )
+            
+            # Configure resolution
+            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
+            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
+            
+            # Read an initial frame to populate buffer and verify it works
+            grabbed, frame = self.cap.read()
+            if not grabbed:
+                raise CameraConnectionError(
+                    f"Camera device {self.src} was opened successfully, but failed to retrieve the first frame."
+                )
+            
+            with self.read_lock:
+                self.frame = frame
+                self.grabbed = grabbed
+                
+        except Exception as e:
+            if self.cap and self.cap.isOpened():
+                self.cap.release()
+            raise CameraConnectionError(f"Error during camera initialization: {str(e)}") from e
+
+    def start(self) -> 'CameraStreamer':
+        """
+        Starts the background thread to continuously fetch frames.
+
+        Returns:
+            CameraStreamer: Returns self for chaining support (fluent interface).
+
+        Raises:
+            CameraConnectionError: If camera connection fails.
+        """
+        if self.started:
+            return self
+
+        # Initialize connection before launching the thread
+        self._initialize_camera()
+        
+        self.started = True
+        self.thread = threading.Thread(target=self._update, name="CameraStreamerWorker", daemon=True)
+        self.thread.start()
+        return self
+
+    def _update(self) -> None:
+        """
+        The background thread worker loop. Continuously pulls frames from cv2.VideoCapture.
+        If reading fails repeatedly or the stream is disconnected, raises a warning and stops.
+        """
+        consecutive_failures = 0
+        max_failures = 5
+
+        while self.started:
+            grabbed, frame = self.cap.read()
+            
+            if not grabbed:
+                consecutive_failures += 1
+                time.sleep(0.01) # Yield CPU
+                if consecutive_failures >= max_failures:
+                    print(f"[ERROR] CameraStreamer: Connection lost after {consecutive_failures} failed read attempts.")
+                    with self.read_lock:
+                        self.grabbed = False
+                    self.started = False
+                    break
+                continue
+            
+            consecutive_failures = 0
+            
+            with self.read_lock:
+                self.frame = frame
+                self.grabbed = grabbed
+
+    def read(self) -> Tuple[bool, Optional[np.ndarray]]:
+        """
+        Thread-safe method to read the most recently captured frame.
+
+        Returns:
+            Tuple[bool, Optional[np.ndarray]]:
+                - bool: True if the frame was grabbed successfully, False otherwise.
+                - np.ndarray: The actual frame image (BGR format), or None if unavailable.
+        """
+        with self.read_lock:
+            # We copy the frame to prevent race conditions during manipulation in the main thread
+            frame_copy = self.frame.copy() if self.frame is not None else None
+            return self.grabbed, frame_copy
+
+    def stop(self) -> None:
+        """
+        Stops the background worker thread and safely releases camera hardware resources.
+        """
+        if not self.started:
+            return
+
+        self.started = False
+        if self.thread is not None:
+            self.thread.join(timeout=2.0) # Gracefully wait for thread to exit
+        
+        if self.cap is not None:
+            self.cap.release()
+            
+        print("[INFO] CameraStreamer stopped and hardware resources released safely.")
+
+    def __enter__(self) -> 'CameraStreamer':
+        """Supports the 'with' statement context manager protocol."""
+        return self.start()
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Supports the 'with' statement context manager protocol to ensure safe release of resources."""
+        self.stop()
+
+
+# Quick verification script that runs only if this file is executed directly
+if __name__ == "__main__":
+    print("[TEST] Running CameraStreamer verification...")
+    # Using index 0 (default camera). We'll catch error if no camera is connected.
+    try:
+        with CameraStreamer(src=0, width=640, height=480) as streamer:
+            print("[TEST] Camera initialized and background thread started successfully!")
+            
+            # Read a few frames to verify asynchronous fetch
+            for i in range(5):
+                success, frame = streamer.read()
+                if success and frame is not None:
+                    print(f"[TEST] Frame {i+1} fetched successfully! Shape: {frame.shape}")
+                else:
+                    print(f"[TEST] Warning: Frame {i+1} could not be read yet.")
+                time.sleep(0.5)
+                
+    except CameraConnectionError as err:
+        print(f"\n[TEST ERROR] Camera Connection Failed: {err}")
+    except Exception as err:
+        print(f"\n[TEST ERROR] Unexpected error: {err}")
