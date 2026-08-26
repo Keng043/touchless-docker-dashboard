@@ -16,7 +16,7 @@ import cv2
 import numpy as np
 
 # Import custom OOP components
-from camera_streamer import CameraStreamer, CameraConnectionError
+from camera_streamer import get_camera_streamer, CameraConnectionError
 from hand_tracker import HandTracker, HandDetection, TrackerError
 from docker_service import get_docker_service, IDockerService, DockerContainer
 from ui_manager import UIManager
@@ -83,7 +83,7 @@ def main() -> None:
 
     # 3. Instantiate CameraStreamer and HandTracker
     # Index 0 is standard webcam.
-    camera = CameraStreamer(src=0, width=width, height=height)
+    camera = get_camera_streamer(src=0, width=width, height=height)
     tracker = HandTracker(model_path="hand_landmarker.task", num_hands=2)
 
     # State variables for Gesture Control and UX Debouncing
@@ -161,6 +161,7 @@ def main() -> None:
                     
                     # Collision and Trigger click check
                     if is_pinched and pinch_released:
+                        pinch_released = False  # Lock until they open their pinch
                         current_time = time.time()
                         if current_time - last_click_time >= click_debounce_interval:
                             hit = ui.detect_button_click(cx, cy)
@@ -180,9 +181,8 @@ def main() -> None:
                                 elif action == "RESTART":
                                     threading.Thread(target=docker_service.restart_container, args=(container_id,), daemon=True).start()
                                 
-                                # Update timestamp and latch trigger
+                                # Update timestamp
                                 last_click_time = current_time
-                                pinch_released = False  # Lock until they open their pinch
 
                 # H. Show final BGR rendered frame
                 cv2.imshow("Touchless Docker Dashboard", frame)

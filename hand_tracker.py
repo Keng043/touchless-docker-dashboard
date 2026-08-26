@@ -7,6 +7,7 @@ Description: SOLID-compliant, OOP-designed wrapper for MediaPipe Hand Landmarker
 """
 
 import os
+import time
 from dataclasses import dataclass
 from typing import List, Tuple, Optional
 import cv2

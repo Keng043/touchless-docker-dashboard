@@ -209,3 +209,139 @@ if __name__ == "__main__":
         print(f"\n[TEST ERROR] Camera Connection Failed: {err}")
     except Exception as err:
         print(f"\n[TEST ERROR] Unexpected error: {err}")
+
+
+class SimulatedCameraStreamer:
+    """
+    A simulated camera streamer that generates synthetic video frames 
+    representing a futuristic holographic interface. Used when a physical 
+    webcam is not available.
+    """
+    def __init__(self, src: Union[int, str] = 0, width: int = 1280, height: int = 720) -> None:
+        self.src = src
+        self.width = width
+        self.height = height
+        self.read_lock = threading.Lock()
+        self.started = False
+        self.thread = None
+        self.frame = None
+        self.grabbed = False
+        self.start_time = time.time()
+
+    def start(self) -> 'SimulatedCameraStreamer':
+        if self.started:
+            return self
+        self.started = True
+        self.grabbed = True
+        # Generate initial frame
+        self._generate_frame()
+        self.thread = threading.Thread(target=self._update, name="SimulatedCameraStreamerWorker", daemon=True)
+        self.thread.start()
+        print("[INFO] SimulatedCameraStreamer started successfully (Simulation Mode).")
+        return self
+
+    def _generate_frame(self) -> None:
+        import math
+        # Create dark background
+        frame = np.zeros((self.height, self.width, 3), dtype=np.uint8)
+        # Deep space gradient background
+        frame[:] = (12, 10, 8) # Very dark slate blue/black
+        
+        t = time.time() - self.start_time
+        
+        # Draw a beautiful digital sci-fi background
+        # 1. Subtle horizontal scanning lines
+        for y in range(0, self.height, 4):
+            cv2.line(frame, (0, y), (self.width, y), (16, 14, 12), 1)
+            
+        # 2. Glowing circular grid in center-right (Radar Area)
+        radar_center = (910, 360)
+        # Draw concentric expanding circles
+        for r_offset in [0, 40, 80, 120, 160]:
+            r = int((r_offset + t * 20) % 200)
+            alpha = max(0.0, min(1.0, (200 - r) / 200.0))
+            color = (int(0 * alpha), int(100 * alpha), int(100 * alpha)) # Cyan glow
+            cv2.circle(frame, radar_center, r, color, 1)
+
+        # 3. Rotating radar sweep line
+        angle = t * 1.5
+        end_x = int(radar_center[0] + 180 * math.cos(angle))
+        end_y = int(radar_center[1] + 180 * math.sin(angle))
+        cv2.line(frame, radar_center, (end_x, end_y), (0, 120, 120), 2)
+        
+        # 4. Animated corner crosshairs
+        c_len = 30
+        margin = 15
+        color_cyan = (255, 255, 0)
+        # Top-Left
+        cv2.line(frame, (margin, margin), (margin + c_len, margin), color_cyan, 1)
+        cv2.line(frame, (margin, margin), (margin, margin + c_len), color_cyan, 1)
+        # Top-Right
+        cv2.line(frame, (self.width - margin, margin), (self.width - margin - c_len, margin), color_cyan, 1)
+        cv2.line(frame, (self.width - margin, margin), (self.width - margin, margin + c_len), color_cyan, 1)
+        # Bottom-Left
+        cv2.line(frame, (margin, self.height - margin), (margin + c_len, self.height - margin), color_cyan, 1)
+        cv2.line(frame, (margin, self.height - margin), (margin, self.height - margin - c_len), color_cyan, 1)
+        # Bottom-Right
+        cv2.line(frame, (self.width - margin, self.height - margin), (self.width - margin - c_len, self.height - margin), color_cyan, 1)
+        cv2.line(frame, (self.width - margin, self.height - margin), (self.width - margin, self.height - margin - c_len), color_cyan, 1)
+
+        # 5. Adding status overlays
+        cv2.putText(frame, "SIMULATOR CAM", (30, self.height - 25),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 215, 255), 1, cv2.LINE_AA)
+        
+        # Add decorative data blocks
+        for i in range(3):
+            val = int(math.sin(t + i) * 50 + 50)
+            cv2.rectangle(frame, (1150 + i * 20, 50), (1160 + i * 20, 50 + val), (150, 100, 0), -1)
+
+        with self.read_lock:
+            self.frame = frame
+            self.grabbed = True
+
+    def _update(self) -> None:
+        while self.started:
+            self._generate_frame()
+            time.sleep(1 / 30.0) # 30 FPS
+
+    def read(self) -> Tuple[bool, Optional[np.ndarray]]:
+        with self.read_lock:
+            frame_copy = self.frame.copy() if self.frame is not None else None
+            return self.grabbed, frame_copy
+
+    def stop(self) -> None:
+        if not self.started:
+            return
+        self.started = False
+        if self.thread is not None:
+            self.thread.join(timeout=2.0)
+        print("[INFO] SimulatedCameraStreamer stopped successfully.")
+
+    def __enter__(self) -> 'SimulatedCameraStreamer':
+        return self.start()
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        self.stop()
+
+
+def get_camera_streamer(src: Union[int, str] = 0, width: int = 1280, height: int = 720, force_simulate: bool = False) -> Union[CameraStreamer, SimulatedCameraStreamer]:
+    """
+    Factory function following the Dependency Inversion Principle.
+    Attempts to initialize the physical CameraStreamer; if it fails or if force_simulate is True,
+    it gracefully falls back to SimulatedCameraStreamer.
+    """
+    if force_simulate:
+        print("[INFO] Forcing Simulation Mode for Camera Streamer.")
+        return SimulatedCameraStreamer(src, width, height)
+    try:
+        # Try real camera
+        streamer = CameraStreamer(src, width, height)
+        # Test initialize to verify
+        streamer._initialize_camera()
+        # If it succeeds, release and return it (since the context manager in main will start it)
+        if streamer.cap and streamer.cap.isOpened():
+            streamer.cap.release()
+        return streamer
+    except Exception as e:
+        print(f"[INFO] Running Camera Streamer in simulation mode. Reason: {e}")
+        return SimulatedCameraStreamer(src, width, height)
