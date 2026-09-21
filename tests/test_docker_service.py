@@ -26,7 +26,7 @@ def test_unknown_container_is_rejected():
 def test_cpu_percentage_calculation():
     service = object.__new__(RealDockerService)
     stats = {'cpu_stats': {'cpu_usage': {'total_usage': 300}, 'system_cpu_usage': 1300, 'online_cpus': 2}, 'precpu_stats': {'cpu_usage': {'total_usage': 100}, 'system_cpu_usage': 900}}
-    assert service._calculate_cpu_percentage(stats) == 50.0
+    assert service._calculate_cpu_percentage(stats) == 100.0
 
 @pytest.mark.parametrize('stats', [{}, {'cpu_stats': None}, {'precpu_stats': None}])
 def test_cpu_calculation_handles_malformed_stats(stats):

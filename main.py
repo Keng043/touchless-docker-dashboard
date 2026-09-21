@@ -82,8 +82,8 @@ def main() -> None:
     stats_thread.start()
 
     # 3. Instantiate CameraStreamer and HandTracker
-    # Index 0 is standard webcam.
-    camera = get_camera_streamer(src=0, width=width, height=height)
+    # Camera index 1 is the working webcam on this machine (index 0 is unavailable).
+    camera = get_camera_streamer(src=1, width=width, height=height)
     tracker = HandTracker(model_path="hand_landmarker.task", num_hands=2)
 
     # State variables for Gesture Control and UX Debouncing
@@ -106,8 +106,9 @@ def main() -> None:
                     time.sleep(0.01)
                     continue
 
-                # OpenCV default is BGR. Let's resize it to exactly fit our HUD dimensions
+                # OpenCV default is BGR. Resize and mirror for natural selfie-style interaction.
                 frame = cv2.resize(frame, (width, height))
+                frame = cv2.flip(frame, 1)
                 
                 # B. Perform hand landmark extraction
                 timestamp_ms = int(time.time() * 1000)
@@ -145,9 +146,10 @@ def main() -> None:
                 with containers_lock:
                     local_containers = list(shared_containers)
 
-                # E. Draw background radar and HUD layouts
+                # E. Draw background radar, hand diagnostics, and HUD layouts
                 ui.draw_radar_hud(frame)
                 ui.draw_hud_panel(frame)
+                ui.draw_hand_tracking(frame, hands, is_pinched)
                 ui.draw_container_list(frame, local_containers, cursor_pos)
 
                 # F. Handle Portal (If 2 hands are visible, open the magical neon portal)

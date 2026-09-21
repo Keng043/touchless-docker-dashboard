@@ -61,9 +61,9 @@ class HandTracker:
         self,
         model_path: str = "hand_landmarker.task",
         num_hands: int = 2,
-        min_detection_confidence: float = 0.7,
-        min_presence_confidence: float = 0.7,
-        min_tracking_confidence: float = 0.7
+        min_detection_confidence: float = 0.5,
+        min_presence_confidence: float = 0.5,
+        min_tracking_confidence: float = 0.5
     ) -> None:
         """
         Initializes the HandTracker.

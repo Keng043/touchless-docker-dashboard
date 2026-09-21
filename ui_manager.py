@@ -168,6 +168,34 @@ class UIManager:
             # Draw divider
             cv2.line(frame, (30, y + 105), (530, y + 105), (40, 40, 40), 1)
 
+    def draw_hand_tracking(self, frame: np.ndarray, hands: List[HandDetection], is_pinched: bool) -> None:
+        """Draw visible hand landmarks and a live detection status for gesture debugging."""
+        status = f"HANDS DETECTED: {len(hands)}"
+        status_color = self.COLOR_NEON_GREEN if hands else self.COLOR_RED
+        cv2.putText(frame, status, (580, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.55,
+                    status_color, 2, cv2.LINE_AA)
+        pinch_text = "PINCH: ACTIVE" if is_pinched else "PINCH: READY"
+        pinch_color = (0, 215, 255) if is_pinched else self.COLOR_WHITE
+        cv2.putText(frame, pinch_text, (580, 125), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
+                    pinch_color, 2, cv2.LINE_AA)
+
+        connections = (
+            (0,1),(1,2),(2,3),(3,4),
+            (0,5),(5,6),(6,7),(7,8),
+            (5,9),(9,10),(10,11),(11,12),
+            (9,13),(13,14),(14,15),(15,16),
+            (13,17),(17,18),(18,19),(19,20),(0,17)
+        )
+        for hand in hands:
+            points = {lm.id: (lm.px, lm.py) for lm in hand.landmarks}
+            for a, b in connections:
+                if a in points and b in points:
+                    cv2.line(frame, points[a], points[b], self.COLOR_CYAN, 2, cv2.LINE_AA)
+            for lm in hand.landmarks:
+                cv2.circle(frame, (lm.px, lm.py), 3, self.COLOR_NEON_GREEN, -1)
+            if 8 in points:
+                cv2.circle(frame, points[8], 10, self.COLOR_WHITE, 2)
+
     def draw_cursor(self, frame: np.ndarray, cx: int, cy: int, is_pinched: bool) -> None:
         """
         Draws an interactive sci-fi tracking cursor at the hand pointer coordinates.
