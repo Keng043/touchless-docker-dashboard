@@ -1,79 +1,59 @@
-# 🐳 Touchless Docker Dashboard 👁️💻
+# Touchless Docker Dashboard
 
-An interactive, gesture-controlled container management dashboard that utilizes Computer Vision (OpenCV + Google MediaPipe) to orchestrate and monitor local/simulated Docker environments.
+Gesture-controlled local Docker monitoring and control using OpenCV and MediaPipe.
 
-This project is built from the ground up using **Object-Oriented Programming (OOP)** and strictly adheres to **SOLID Design Principles** to solve common real-time video processing bottlenecks.
+## What it does
+- Tracks a hand with MediaPipe and maps the index fingertip to a virtual cursor.
+- Uses thumb/index pinch detection for START, STOP, and RESTART actions.
+- Displays container status, CPU usage, and memory usage.
+- Polls Docker statistics on a background thread so camera rendering is not blocked.
+- Falls back to a simulator when the Docker SDK/daemon is unavailable.
 
----
+## Architecture
+- `camera_streamer.py` — camera lifecycle and frame acquisition.
+- `hand_tracker.py` — MediaPipe hand detection and landmark models.
+- `docker_service.py` — Docker abstraction, real SDK adapter, and simulator.
+- `ui_manager.py` — OpenCV HUD and gesture hit-testing.
+- `main.py` — application orchestration and background stats worker.
+- `tests/` — service-level regression tests.
 
-## 🚀 Key Features
+## Security notes
+This application can control the local Docker daemon. Treat Docker daemon access as a privileged capability.
 
-* **Asynchronous Multi-Threaded Camera Streaming:** Offloads heavy video frame pulling onto a background worker thread to ensure zero frame-drops in the rendering layer.
-* **Futuristic Cyberpunk HUD Display:** A stunning heads-up display showing running/stopped containers, animated progress bars for live CPU % and Memory usage metrics.
-* **Holographic Gesture Cursor:** Smoothly tracks your index finger tip to act as a virtual mouse pointer.
-* **Pinch-to-Click Interaction:** Detects when you pinch your index finger and thumb together to trigger Docker container actions (`START`, `STOP`, `RESTART`) with built-in robust debouncing.
-* **Dual-Hand Magic Portal:** Open a magical neon-styled geometric portal by holding up both hands. Features real-time edge particle spark physics (a direct nod to *Dr. Strange / Retrolens* style).
-* **Smart Fallback Simulator (Liskov Substitution):** Detects if Docker Daemon or the python `docker` SDK is missing and seamlessly falls back to a highly realistic mock container stack with real-time stats fluctuations and fully interactive feedback.
+- Do not expose the Docker socket/API to untrusted networks.
+- Do not run the dashboard with broader OS privileges than required.
+- Container IDs are passed to the Docker SDK rather than assembled into shell commands.
+- The dashboard does not execute arbitrary shell commands from gesture input.
+- Review the Docker daemon permissions before production use.
 
----
+## Setup
+Python 3.10+ is recommended. Create a virtual environment, then:
 
-## 📐 Architecture & SOLID Principles
-
-* **Single Responsibility Principle (SRP):**
-  * `CameraStreamer`: Strictly handles thread-safe asynchronous camera frame grabbing.
-  * `HandTracker`: Purely extracts and scales hand landmark coordinates into decoupled immutable dataclasses.
-  * `DockerService`: Exclusively manages container list queries and life-cycle controls.
-  * `UIManager`: Handles CV graphics drawing, HUD drawing, and geometric math for portals and cursor collisions.
-* **Liskov Substitution Principle (LSP) & Dependency Inversion Principle (DIP):**
-  * `IDockerService` defines an interface. Both `RealDockerService` and `MockDockerService` implement it seamlessly, enabling full simulation capabilities when a live daemon isn't present.
-  * High-level client code (`main.py`) interacts purely with the interface rather than the concrete implementations.
-
----
-
-## 📦 Project Directory Structure
-
-```text
-touchless-docker-dashboard/
-├── camera_streamer.py   # Async video streamer
-├── hand_tracker.py      # MediaPipe landmarker & hand domain dataclasses
-├── docker_service.py    # Docker SDK manager & mock fallback simulator
-├── ui_manager.py        # Cyberpunk HUD graphics & particle portal drawing
-├── main.py              # Main orchestrator loop
-└── .gitignore           # Standard git ignore patterns
-```
-
----
-
-## ⚙️ Installation & Running
-
-### 1. Prerequisites
-Ensure you have Python 3.10+ installed.
-
-### 2. Install Dependencies
 ```bash
-pip install opencv-python mediapipe numpy
-# Optional for real Docker integration:
-pip install docker
+python -m venv .venv
+# Windows
+.venv\\Scripts\\activate
+pip install -r requirements.txt
 ```
 
-### 3. Download the MediaPipe Model Asset
-Download the **Hand Landmarker** model task file and place it in the project root directory:
-* [Download hand_landmarker.task](https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task)
+Place the MediaPipe `hand_landmarker.task` model in the project root. It is intentionally ignored by Git because it is a large binary asset.
 
-### 4. Run the Dashboard
+## Test
+
+```bash
+python -m pytest -q
+```
+
+## Run
+
 ```bash
 python main.py
 ```
 
----
+Press `q` in the camera window to exit.
 
-## 🖐️ Interactive Gestures
-
-* **Move Pointer:** Hold up one hand and point with your index finger. Move your hand to move the neon green cursor.
-* **Trigger Click:** Pinch your **Thumb and Index finger** together while hovering the cursor over a container action button (`START`, `STOP`, `RESTART`).
-* **Open Magic Portal:** Hold up **both hands** in front of the camera to open the glowing edge-sparking portal.
-
----
-
-## 🧑‍💻 Author
-Developed by **Python Software Architect & DevOps Engineer** (Kongkiat).
+## Limitations
+- Gesture control is sensitive to lighting, camera placement, and hand pose.
+- The current dashboard targets a local desktop Docker daemon.
+- No authentication layer is provided; OS/Docker daemon permissions are the security boundary.
+- Docker stats are snapshots and may fail for containers that terminate while being sampled.
