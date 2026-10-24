@@ -59,7 +59,10 @@ def calculate_distance(p1: Tuple[int, int], p2: Tuple[int, int]) -> float:
 
 def main() -> None:
     global shared_containers, running
-    
+
+    # Reset the stop flag so main() can be safely invoked again in the same process.
+    running = True
+
     # 1. Initialize UIManager (1280x720 HD display target)
     width, height = 1280, 720
     ui = UIManager(width=width, height=height)
@@ -67,24 +70,25 @@ def main() -> None:
     # 2. Instantiate and establish Docker Service
     print("[INFO] Setting up Docker Controller Service...")
     docker_service = get_docker_service()
-    
-    # Initialize shared list with an initial fetch before launching background thread
+
+    # Fetch initial container state before starting background polling.
     with containers_lock:
         shared_containers = docker_service.list_containers()
 
-    # Launch async stats updater thread
-    stats_thread = threading.Thread(
-        target=docker_stats_fetcher, 
-        args=(docker_service,), 
-        name="DockerStatsUpdater", 
-        daemon=True
-    )
-    stats_thread.start()
-
-    # 3. Instantiate CameraStreamer and HandTracker
+    # 3. Instantiate CameraStreamer and HandTracker before starting the worker.
+    # This avoids leaving a background stats thread running if tracker setup fails.
     # Camera index 1 is the working webcam on this machine (index 0 is unavailable).
     camera = get_camera_streamer(src=1, width=width, height=height)
     tracker = HandTracker(model_path="hand_landmarker.task", num_hands=2)
+
+    # Launch async stats updater thread after the main components are constructed.
+    stats_thread = threading.Thread(
+        target=docker_stats_fetcher,
+        args=(docker_service,),
+        name="DockerStatsUpdater",
+        daemon=True
+    )
+    stats_thread.start()
 
     # State variables for Gesture Control and UX Debouncing
     last_click_time = 0.0
@@ -113,7 +117,28 @@ def main() -> None:
                 # B. Perform hand landmark extraction
                 timestamp_ms = int(time.time() * 1000)
                 try:
-                    hands = hand_detector.process_frame(frame, timestamp_ms)
+                    detection_frame = cv2.resize(
+                        frame, (640, 360), interpolation=cv2.INTER_AREA
+                    )
+                    detected_hands = hand_detector.process_frame(
+                        detection_frame, timestamp_ms
+                    )
+                    # MediaPipe landmarks are in the smaller inference frame;
+                    # scale pixel positions back for the 1280x720 UI hit-testing.
+                    hands = [
+                        HandDetection(
+                            label=hand.label,
+                            confidence=hand.confidence,
+                            landmarks=[
+                                type(lm)(
+                                    id=lm.id, x=lm.x, y=lm.y, z=lm.z,
+                                    px=lm.px * 2, py=lm.py * 2
+                                )
+                                for lm in hand.landmarks
+                            ],
+                        )
+                        for hand in detected_hands
+                    ]
                 except TrackerError as tracker_err:
                     print(f"[WARNING] Hand tracker error: {tracker_err}")
                     hands = []
@@ -151,10 +176,6 @@ def main() -> None:
                 ui.draw_hud_panel(frame)
                 ui.draw_hand_tracking(frame, hands, is_pinched)
                 ui.draw_container_list(frame, local_containers, cursor_pos)
-
-                # F. Handle Portal (If 2 hands are visible, open the magical neon portal)
-                if len(hands) >= 2:
-                    ui.draw_magic_portal(frame, hands)
 
                 # G. Draw and process interactive Cursor Actions
                 if cursor_pos:

@@ -1,5 +1,5 @@
-opencv-python
-mediapipe
-numpy
+opencv-contrib-python==4.11.0.86
+mediapipe==0.10.21
+numpy<2
 docker
 pytest

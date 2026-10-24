@@ -2,13 +2,9 @@
 Module: ui_manager
 Project: Touchless Docker Dashboard
 Author: Python Software Architect & DevOps Engineer
-Description: High-performance OpenCV-based rendering module for HUD and Portal.
-             Handles UI layouts, custom styles, interactive button collision detection,
-             and dynamic sci-fi particle portal rendering.
+Description: OpenCV HUD rendering and low-overhead gesture interaction UI.
 """
 
-import math
-import random
 from typing import List, Tuple, Optional, Dict
 import cv2
 import numpy as np
@@ -20,7 +16,7 @@ class UIManager:
     """
     Manages the UI layer of the Touchless Docker Dashboard.
     Responsible for rendering the cyberpunk HUD, drawing the virtual hand cursor,
-    handling button hover/click detection, and rendering the magical dual-hand portal.
+    and handling button hover/click detection.
     """
 
     def __init__(self, width: int = 1280, height: int = 720) -> None:
@@ -41,6 +37,7 @@ class UIManager:
         # Define button bounds in memory for collision checking
         # Format: { button_name: (x_min, y_min, x_max, y_max, container_id) }
         self.interactive_buttons: Dict[str, Tuple[int, int, int, int, str]] = {}
+
 
     def draw_hud_panel(self, frame: np.ndarray) -> None:
         """
@@ -216,10 +213,6 @@ class UIManager:
         cv2.line(frame, (cx, cy - offset), (cx, cy - 8), cursor_color, 1)
         cv2.line(frame, (cx, cy + 8), (cx, cy + offset), cursor_color, 1)
 
-        # Draw ring explosion if clicked (visual feedback)
-        if is_pinched:
-            cv2.circle(frame, (cx, cy), 24, (0, 215, 255), 1)
-            cv2.circle(frame, (cx, cy), 32, (0, 215, 255), 1)
 
     def detect_button_click(self, cx: int, cy: int) -> Optional[Tuple[str, str]]:
         """
@@ -261,92 +254,3 @@ class UIManager:
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, self.COLOR_CYAN, 1, cv2.LINE_AA)
         cv2.putText(frame, "SYSTEM MONITORS: LIVE", (580, 70),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, self.COLOR_CYAN, 1, cv2.LINE_AA)
-
-    def draw_magic_portal(self, frame: np.ndarray, hands: List[HandDetection]) -> None:
-        """
-        Calculates and draws a magical 4-point glowing portal between two hands.
-        Applies a sci-fi filter (e.g. Neon Canny) to the area inside the portal ROI
-        and sprays colorful particles on the edges, paying homage to python-handtrack.
-        """
-        if len(hands) < 2:
-            return
-
-        # Collect ID 4 (Thumb) and ID 8 (Index) of both hands to form 4 points
-        pts_portal: List[Tuple[int, int]] = []
-        for hand in hands[:2]:
-            t_lm = next((lm for lm in hand.landmarks if lm.id == 4), None)
-            i_lm = next((lm for lm in hand.landmarks if lm.id == 8), None)
-            if t_lm and i_lm:
-                pts_portal.append((t_lm.px, t_lm.py))
-                pts_portal.append((i_lm.px, i_lm.py))
-
-        if len(pts_portal) != 4:
-            return
-
-        # Sort the 4 points to form a non-self-intersecting quadrilateral
-        # Sort by Y-coordinate to separate Top 2 and Bottom 2 points
-        pts_portal.sort(key=lambda p: p[1])
-        top_pts = pts_portal[:2]
-        bottom_pts = pts_portal[2:]
-        
-        # Sort each pair by X-coordinate to align left-to-right
-        top_pts.sort(key=lambda p: p[0])
-        bottom_pts.sort(key=lambda p: p[0])
-        
-        # Chronological order of polygon vertices
-        poly_pts = np.array([top_pts[0], top_pts[1], bottom_pts[1], bottom_pts[0]], dtype=np.int32)
-
-        # Get bounding box of the polygon
-        h_f, w_f, _ = frame.shape
-        x, y, bw, bh = cv2.boundingRect(poly_pts)
-        x, y = max(0, x), max(0, y)
-        bw, bh = min(w_f - x, bw), min(h_f - y, bh)
-
-        if bw > 20 and bh > 20:
-            # Extract ROI inside the bounding box
-            roi = frame[y:y+bh, x:x+bw].copy()
-
-            # Apply futuristic Filter: "NEON/SKETCH" effect to the ROI
-            gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-            blur = cv2.GaussianBlur(gray, (5, 5), 0)
-            edges = cv2.Canny(blur, 40, 120)
-            edges_bgr = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
-            
-            # Dye edges with bright cyan
-            edges_bgr[np.where((edges_bgr == [255, 255, 255]).all(axis=2))] = self.COLOR_CYAN
-
-            # Create polygon mask relative to ROI coordinates
-            mask = np.zeros((bh, bw), dtype=np.uint8)
-            poly_roi = poly_pts - [x, y]
-            cv2.fillPoly(mask, [poly_roi], 255)
-            mask_3ch = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
-
-            # Blend the filtered ROI back only inside the polygon mask
-            frame[y:y+bh, x:x+bw] = np.where(mask_3ch == 255, edges_bgr, roi)
-
-            # Draw thick white bounding line of the portal
-            cv2.polylines(frame, [poly_pts], True, self.COLOR_WHITE, 2)
-
-            # --- RENDER SPARKLING PORTAL PARTICLES (EDGE GLOW) ---
-            for i in range(4):
-                pt1 = poly_pts[i]
-                pt2 = poly_pts[(i+1)%4]
-                # Spray 8 glowing golden-cyan particles along each of the 4 lines
-                for _ in range(8):
-                    alpha = random.random()
-                    # Interpolated point along the segment
-                    px = int(pt1[0] * alpha + pt2[0] * (1 - alpha)) + random.randint(-12, 12)
-                    py = int(pt1[1] * alpha + pt2[1] * (1 - alpha)) + random.randint(-12, 12)
-                    
-                    # Ensure particle stays within window borders
-                    px = max(0, min(self.width - 1, px))
-                    py = max(0, min(self.height - 1, py))
-                    
-                    p_color = self.COLOR_CYAN if random.choice([True, False]) else self.COLOR_NEON_GREEN
-                    cv2.circle(frame, (px, py), random.randint(1, 3), p_color, -1)
-
-            # Overlay HUD status text over the portal
-            portal_cx = int(np.mean(poly_pts[:, 0]))
-            portal_cy = int(np.mean(poly_pts[:, 1]))
-            cv2.putText(frame, "PORTAL CHANNEL SECURE", (portal_cx - 100, portal_cy),
-                        cv2.FONT_HERSHEY_PLAIN, 1.2, self.COLOR_NEON_GREEN, 2, cv2.LINE_AA)

@@ -166,17 +166,18 @@ class CameraStreamer:
     def stop(self) -> None:
         """
         Stops the background worker thread and safely releases camera hardware resources.
-        """
-        if not self.started:
-            return
 
+        Cleanup is intentionally performed even when the worker has already marked
+        itself stopped after repeated frame-read failures.
+        """
         self.started = False
-        if self.thread is not None:
-            self.thread.join(timeout=2.0) # Gracefully wait for thread to exit
-        
+        if self.thread is not None and self.thread.is_alive():
+            self.thread.join(timeout=2.0)  # Gracefully wait for the worker to exit
+
         if self.cap is not None:
             self.cap.release()
-            
+            self.cap = None
+
         print("[INFO] CameraStreamer stopped and hardware resources released safely.")
 
     def __enter__(self) -> 'CameraStreamer':

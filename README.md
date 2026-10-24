@@ -7,7 +7,7 @@ Gesture-controlled local Docker monitoring and control using OpenCV and MediaPip
 - Uses thumb/index pinch detection for START, STOP, and RESTART actions.
 - Displays container status, CPU usage, and memory usage.
 - Polls Docker statistics on a background thread so camera rendering is not blocked.
-- Falls back to a simulator when the Docker SDK/daemon is unavailable.
+- Falls back to a simulator when the Docker SDK or Docker daemon is unavailable.
 
 ## Architecture
 - `camera_streamer.py` — camera lifecycle and frame acquisition.
@@ -15,7 +15,7 @@ Gesture-controlled local Docker monitoring and control using OpenCV and MediaPip
 - `docker_service.py` — Docker abstraction, real SDK adapter, and simulator.
 - `ui_manager.py` — OpenCV HUD and gesture hit-testing.
 - `main.py` — application orchestration and background stats worker.
-- `tests/` — service-level regression tests.
+- `tests/` — regression tests for Docker service behavior, camera cleanup, and UI hit-testing.
 
 ## Security notes
 This application can control the local Docker daemon. Treat Docker daemon access as a privileged capability.
@@ -24,30 +24,29 @@ This application can control the local Docker daemon. Treat Docker daemon access
 - Do not run the dashboard with broader OS privileges than required.
 - Container IDs are passed to the Docker SDK rather than assembled into shell commands.
 - The dashboard does not execute arbitrary shell commands from gesture input.
-- Review the Docker daemon permissions before production use.
+- Review Docker daemon permissions before production use.
 
 ## Setup
-Python 3.10+ is recommended. Create a virtual environment, then:
+Python 3.10–3.12 is recommended. MediaPipe and OpenCV are version-pinned for compatibility. On Windows, create a clean virtual environment with Python 3.12:
 
-```bash
-python -m venv .venv
-# Windows
-.venv\\Scripts\\activate
-pip install -r requirements.txt
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
 Place the MediaPipe `hand_landmarker.task` model in the project root. It is intentionally ignored by Git because it is a large binary asset.
 
 ## Test
 
-```bash
-python -m pytest -q
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q
 ```
 
 ## Run
 
-```bash
-python main.py
+```powershell
+.\.venv\Scripts\python.exe main.py
 ```
 
 Press `q` in the camera window to exit.
@@ -57,3 +56,4 @@ Press `q` in the camera window to exit.
 - The current dashboard targets a local desktop Docker daemon.
 - No authentication layer is provided; OS/Docker daemon permissions are the security boundary.
 - Docker stats are snapshots and may fail for containers that terminate while being sampled.
+- If Docker is unavailable, the dashboard uses mock containers; actions in simulator mode do not affect real containers.
