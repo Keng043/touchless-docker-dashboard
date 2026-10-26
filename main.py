@@ -7,11 +7,14 @@ Description: Integrates CameraStreamer, HandTracker, DockerService, and UIManage
              gesture cursor mapping, pinch-to-click detection, and debounce control.
 """
 
+import os
 import sys
 import threading
 import time
 import math
-from typing import List, Optional, Tuple
+import statistics
+from collections import deque
+from typing import Deque, Dict, List, Optional, Tuple
 import cv2
 import numpy as np
 
@@ -57,11 +60,73 @@ def calculate_distance(p1: Tuple[int, int], p2: Tuple[int, int]) -> float:
     return math.hypot(p1[0] - p2[0], p1[1] - p2[1])
 
 
+class FrameProfiler:
+    """Opt-in rolling profiler for the main camera/UI pipeline.
+
+    Enable with GHOST_PROFILE=1. When disabled, stage timers return immediately
+    and no profiling output is printed.
+    """
+
+    STAGES = ("camera_read", "preprocess", "hand_detection", "ui_render", "display")
+
+    def __init__(self, enabled: bool = False, report_interval: float = 5.0,
+                 window_size: int = 120) -> None:
+        self.enabled = enabled
+        self.report_interval = report_interval
+        self.samples: Dict[str, Deque[float]] = {
+            stage: deque(maxlen=window_size) for stage in self.STAGES
+        }
+        self._report_started = time.monotonic()
+        self._frames = 0
+
+    def start_stage(self) -> int:
+        return time.perf_counter_ns() if self.enabled else 0
+
+    @staticmethod
+    def percentile(values: List[float], percentile: float) -> float:
+        """Return a nearest-rank percentile from a non-empty sample."""
+        if not values:
+            raise ValueError("percentile requires at least one sample")
+        if not 0 < percentile <= 100:
+            raise ValueError("percentile must be in the range (0, 100]")
+        ordered = sorted(values)
+        rank = max(1, math.ceil((percentile / 100) * len(ordered)))
+        return ordered[rank - 1]
+
+    def record(self, stage: str, started_ns: int) -> None:
+        if self.enabled and started_ns:
+            self.samples[stage].append((time.perf_counter_ns() - started_ns) / 1_000_000)
+
+    def complete_frame(self) -> None:
+        if not self.enabled:
+            return
+        self._frames += 1
+        now = time.monotonic()
+        elapsed = now - self._report_started
+        if elapsed < self.report_interval:
+            return
+
+        fps = self._frames / elapsed if elapsed > 0 else 0.0
+        details = []
+        for stage, values in self.samples.items():
+            if not values:
+                continue
+            p95 = self.percentile(list(values), 95)
+            details.append(f"{stage} avg={statistics.fmean(values):.1f}ms p95={p95:.1f}ms")
+        print(f"[PROFILE] FPS={fps:.1f} | " + " | ".join(details))
+        self._report_started = now
+        self._frames = 0
+
+
 def main() -> None:
     global shared_containers, running
 
     # Reset the stop flag so main() can be safely invoked again in the same process.
     running = True
+
+    profiler = FrameProfiler(enabled=os.getenv("GHOST_PROFILE", "0").strip() == "1")
+    if profiler.enabled:
+        print("[INFO] Performance profiling enabled (GHOST_PROFILE=1).")
 
     # 1. Initialize UIManager (1280x720 HD display target)
     width, height = 1280, 720
@@ -94,6 +159,7 @@ def main() -> None:
     last_click_time = 0.0
     click_debounce_interval = 1.5  # 1.5 seconds delay between clicks to prevent multiple registers
     pinch_released = True         # Must release pinch before clicking again
+    last_timestamp_ms = 0
 
     print("\n" + "="*50)
     print("      TOUCHLESS DOCKER CONTROLLER STARTED")
@@ -105,17 +171,27 @@ def main() -> None:
         with camera as streamer, tracker as hand_detector:
             while running:
                 # A. Read asynchronous webcam frame
+                stage_started = profiler.start_stage()
                 success, frame = streamer.read()
+                profiler.record("camera_read", stage_started)
                 if not success or frame is None:
                     time.sleep(0.01)
                     continue
 
-                # OpenCV default is BGR. Resize and mirror for natural selfie-style interaction.
-                frame = cv2.resize(frame, (width, height))
+                # Keep the camera's native frame when it already matches the target size;
+                # avoid a redundant full-HD resize on every frame.
+                stage_started = profiler.start_stage()
+                if frame.shape[1] != width or frame.shape[0] != height:
+                    frame = cv2.resize(frame, (width, height), interpolation=cv2.INTER_AREA)
+                # Mirror for natural selfie-style interaction.
                 frame = cv2.flip(frame, 1)
-                
-                # B. Perform hand landmark extraction
-                timestamp_ms = int(time.time() * 1000)
+                profiler.record("preprocess", stage_started)
+
+                # B. Perform hand landmark extraction. MediaPipe VIDEO mode requires
+                # strictly increasing timestamps; monotonic time is immune to wall-clock changes.
+                timestamp_ms = max(last_timestamp_ms + 1, time.monotonic_ns() // 1_000_000)
+                last_timestamp_ms = timestamp_ms
+                stage_started = profiler.start_stage()
                 try:
                     detection_frame = cv2.resize(
                         frame, (640, 360), interpolation=cv2.INTER_AREA
@@ -142,6 +218,7 @@ def main() -> None:
                 except TrackerError as tracker_err:
                     print(f"[WARNING] Hand tracker error: {tracker_err}")
                     hands = []
+                profiler.record("hand_detection", stage_started)
 
                 # C. Extract virtual cursor and pinch gesture status
                 cursor_pos: Optional[Tuple[int, int]] = None
@@ -172,6 +249,7 @@ def main() -> None:
                     local_containers = list(shared_containers)
 
                 # E. Draw background radar, hand diagnostics, and HUD layouts
+                stage_started = profiler.start_stage()
                 ui.draw_radar_hud(frame)
                 ui.draw_hud_panel(frame)
                 ui.draw_hand_tracking(frame, hands, is_pinched)
@@ -185,7 +263,7 @@ def main() -> None:
                     # Collision and Trigger click check
                     if is_pinched and pinch_released:
                         pinch_released = False  # Lock until they open their pinch
-                        current_time = time.time()
+                        current_time = time.monotonic()
                         if current_time - last_click_time >= click_debounce_interval:
                             hit = ui.detect_button_click(cx, cy)
                             if hit:
@@ -206,12 +284,17 @@ def main() -> None:
                                 
                                 # Update timestamp
                                 last_click_time = current_time
+                profiler.record("ui_render", stage_started)
 
                 # H. Show final BGR rendered frame
+                stage_started = profiler.start_stage()
                 cv2.imshow("Touchless Docker Dashboard", frame)
                 
                 # Check for keyboard escape (Exit on pressing 'q')
-                if cv2.waitKey(1) & 0xFF == ord('q'):
+                pressed_key = cv2.waitKey(1) & 0xFF
+                profiler.record("display", stage_started)
+                profiler.complete_frame()
+                if pressed_key == ord('q'):
                     running = False
                     break
 

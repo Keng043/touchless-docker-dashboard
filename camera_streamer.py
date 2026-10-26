@@ -158,10 +158,15 @@ class CameraStreamer:
                 - bool: True if the frame was grabbed successfully, False otherwise.
                 - np.ndarray: The actual frame image (BGR format), or None if unavailable.
         """
+        # The worker replaces the frame reference instead of mutating an existing
+        # array, so take a consistent snapshot under the lock and copy it afterward.
+        # This keeps the camera worker from waiting while a full HD frame is copied.
         with self.read_lock:
-            # We copy the frame to prevent race conditions during manipulation in the main thread
-            frame_copy = self.frame.copy() if self.frame is not None else None
-            return self.grabbed, frame_copy
+            frame = self.frame
+            grabbed = self.grabbed
+
+        frame_copy = frame.copy() if frame is not None else None
+        return grabbed, frame_copy
 
     def stop(self) -> None:
         """

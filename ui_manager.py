@@ -43,13 +43,14 @@ class UIManager:
         """
         Draws the sci-fi translucent background panel and bounding frames.
         """
-        # Create translucent left sidebar panel
-        overlay = frame.copy()
-        
-        # Left panel (X: 20 to 540)
-        cv2.rectangle(overlay, (20, 20), (540, 700), (30, 20, 20), -1)
-        # Apply transparency
-        cv2.addWeighted(overlay, 0.75, frame, 0.25, 0, frame)
+        # Blend only the sidebar region. Copying and blending the full 1280x720
+        # frame here adds avoidable memory bandwidth cost on every rendered frame.
+        x1, y1, x2, y2 = 20, 20, min(540, self.width - 1), min(700, self.height - 1)
+        panel = frame[y1:y2 + 1, x1:x2 + 1]
+        overlay = panel.copy()
+        cv2.rectangle(overlay, (0, 0), (x2 - x1, y2 - y1), (30, 20, 20), -1)
+        # Apply transparency to the panel only; pixels outside remain untouched.
+        cv2.addWeighted(overlay, 0.75, panel, 0.25, 0, panel)
         
         # Draw glowing neon borders
         cv2.rectangle(frame, (20, 20), (540, 700), self.COLOR_CYAN, 2)

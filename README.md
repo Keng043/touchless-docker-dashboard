@@ -51,6 +51,15 @@ Place the MediaPipe `hand_landmarker.task` model in the project root. It is inte
 
 Press `q` in the camera window to exit.
 
+### Optional performance profiling
+
+Set `GHOST_PROFILE=1` to print rolling FPS and average/p95 timings for camera read, preprocessing, hand detection, UI rendering, and display approximately every five seconds. Profiling is disabled by default.
+
+```powershell
+$env:GHOST_PROFILE = "1"
+.\.venv\Scripts\python.exe main.py
+```
+
 ## Limitations
 - Gesture control is sensitive to lighting, camera placement, and hand pose.
 - The current dashboard targets a local desktop Docker daemon.
