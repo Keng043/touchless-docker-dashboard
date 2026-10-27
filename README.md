@@ -1,33 +1,38 @@
-# Touchless Docker Dashboard
+# PROJECT GHOST — Floating Gesture Launcher
 
-Gesture-controlled local Docker monitoring and control using OpenCV and MediaPipe.
+PROJECT GHOST is a webcam hand-gesture interface. An open palm activates a compact launcher that floats above the palm and follows its movement.
 
-## What it does
-- Tracks a hand with MediaPipe and maps the index fingertip to a virtual cursor.
-- Uses thumb/index pinch detection for START, STOP, and RESTART actions.
-- Displays container status, CPU usage, and memory usage.
-- Polls Docker statistics on a background thread so camera rendering is not blocked.
-- Falls back to a simulator when the Docker SDK or Docker daemon is unavailable.
+## Single-hand controls
 
-## Architecture
-- `camera_streamer.py` — camera lifecycle and frame acquisition.
-- `hand_tracker.py` — MediaPipe hand detection and landmark models.
-- `docker_service.py` — Docker abstraction, real SDK adapter, and simulator.
-- `ui_manager.py` — OpenCV HUD and gesture hit-testing.
-- `main.py` — application orchestration and background stats worker.
-- `tests/` — regression tests for Docker service behavior, camera cleanup, and UI hit-testing.
+- **Open palm:** activate the floating launcher.
+- **One raised finger:** select **System 1 — Music**.
+- **Two raised fingers:** select **System 2**.
+- **Fist with the active hand:** confirm the selected system.
+- **Fists with both hands:** deactivate the gesture interface.
+- Lower the active hand or lose it from view for a short period to close the launcher.
 
-## Security notes
-This application can control the local Docker daemon. Treat Docker daemon access as a privileged capability.
+The launcher position is calculated from palm landmarks, smoothed to reduce jitter, and clamped to the camera frame. Gesture labels are stabilized over multiple frames to reduce accidental selection.
 
-- Do not expose the Docker socket/API to untrusted networks.
-- Do not run the dashboard with broader OS privileges than required.
-- Container IDs are passed to the Docker SDK rather than assembled into shell commands.
-- The dashboard does not execute arbitrary shell commands from gesture input.
-- Review Docker daemon permissions before production use.
+## System 1 — Music
 
-## Setup
-Python 3.10–3.12 is recommended. MediaPipe and OpenCV are version-pinned for compatibility. On Windows, create a clean virtual environment with Python 3.12:
+On confirmation, the app opens the supplied YouTube link in the default browser:
+
+- Track label: **รอ SIS (TER)**
+- Link: https://youtu.be/hqCMb8Vr1Ss?si=f9VvH1pJmNsY7qQf
+
+While the app's music state is active, musical notes are drawn beside the tracked fingertips. The current build does not extract or synchronize YouTube captions, so it does **not** display timed lyrics. Timed karaoke lyrics can be added if an authorized lyric/subtitle file is provided. Closing the gesture interface does not forcibly stop or close the external browser playback.
+
+## System 2
+
+System 2 is a placeholder in this build. The gesture selection and confirmation work, but no application is assigned to it yet.
+
+## Safety and boundaries
+
+Gesture actions are limited to opening the specified YouTube URL after the user confirms System 1. System 2 is a no-op placeholder. The application does not issue Docker commands, shell commands, or other operating-system operations through gestures.
+
+## Setup (Windows)
+
+Python 3.10–3.12 is recommended.
 
 ```powershell
 py -3.12 -m venv .venv
@@ -35,13 +40,7 @@ py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-Place the MediaPipe `hand_landmarker.task` model in the project root. It is intentionally ignored by Git because it is a large binary asset.
-
-## Test
-
-```powershell
-.\.venv\Scripts\python.exe -m pytest -q
-```
+Ensure `hand_landmarker.task` exists in the project root.
 
 ## Run
 
@@ -49,20 +48,19 @@ Place the MediaPipe `hand_landmarker.task` model in the project root. It is inte
 .\.venv\Scripts\python.exe main.py
 ```
 
-Press `q` in the camera window to exit.
-
-### Optional performance profiling
-
-Set `GHOST_PROFILE=1` to print rolling FPS and average/p95 timings for camera read, preprocessing, hand detection, UI rendering, and display approximately every five seconds. Profiling is disabled by default.
+The default camera index is `1`, with fallback to `0`. To choose a camera:
 
 ```powershell
-$env:GHOST_PROFILE = "1"
+$env:GHOST_CAMERA_INDEX = "0"
 .\.venv\Scripts\python.exe main.py
 ```
 
-## Limitations
-- Gesture control is sensitive to lighting, camera placement, and hand pose.
-- The current dashboard targets a local desktop Docker daemon.
-- No authentication layer is provided; OS/Docker daemon permissions are the security boundary.
-- Docker stats are snapshots and may fail for containers that terminate while being sampled.
-- If Docker is unavailable, the dashboard uses mock containers; actions in simulator mode do not affect real containers.
+Press `q` or `Esc` in the camera window to exit.
+
+## Test
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q
+```
+
+Gesture recognition is heuristic and can be affected by lighting, camera angle, hand rotation, occlusion, and MediaPipe handedness estimates.
