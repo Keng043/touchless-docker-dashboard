@@ -18,3 +18,6 @@ env/
 # Large MediaPipe and TensorFlow Lite model assets
 *.task
 *.tflite
+
+# Local custom gesture training data/models (never commit personal samples)
+data/

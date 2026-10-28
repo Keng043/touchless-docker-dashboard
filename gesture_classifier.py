@@ -30,7 +30,9 @@ def classify_hand(landmarks) -> str:
         return "Pinch"
 
     fingers_up = [extended[name] for name in ("INDEX", "MIDDLE", "RING", "PINKY")]
-    if all(fingers_up):
+    # A five-finger palm must include an extended thumb; four raised fingers
+    # with a tucked thumb should not trigger the stop command.
+    if all(fingers_up) and thumb_extended:
         return "Open palm"
     if extended["INDEX"] and extended["MIDDLE"] and not extended["RING"] and not extended["PINKY"]:
         return "Peace"

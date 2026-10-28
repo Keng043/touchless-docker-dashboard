@@ -152,10 +152,19 @@ class HandTracker:
         h, w, _ = frame.shape
 
         try:
-            # Convert OpenCV BGR image to RGB (MediaPipe requirement)
-            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            
-            # Wrap in MediaPipe Image format
+            # Run inference on a smaller image to reduce CPU cost while keeping
+            # normalized landmarks mapped back to the original display frame.
+            # Set GHOST_PROCESS_WIDTH=0 to disable resizing, or 480/640 to tune speed.
+            process_width = int(os.getenv("GHOST_PROCESS_WIDTH", "480"))
+            inference_frame = frame
+            if process_width > 0 and w > process_width:
+                process_height = max(1, int(round(h * process_width / w)))
+                inference_frame = cv2.resize(
+                    frame, (process_width, process_height), interpolation=cv2.INTER_AREA
+                )
+
+            # Convert the smaller BGR image to RGB (MediaPipe requirement).
+            rgb_frame = cv2.cvtColor(inference_frame, cv2.COLOR_BGR2RGB)
             mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
             
             # Perform synchronous detection for video
